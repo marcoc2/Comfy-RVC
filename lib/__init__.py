@@ -7,7 +7,10 @@ import weakref
 
 @lru_cache
 def get_cwd():
-    CWD = os.getcwd()
+    import folder_paths
+    # CWD = os.getcwd()
+    CWD = folder_paths.base_path
+    print(f"{CWD=}")
     if CWD not in sys.path:
         sys.path.append(CWD)
     return CWD

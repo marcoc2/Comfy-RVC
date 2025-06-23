@@ -4,7 +4,7 @@ import os, torch, warnings
 from .lib.separators import MDXNet, UVR5Base, UVR5New
 from .lib import BASE_CACHE_DIR, karafan
 from .lib.audio import load_input_audio, pad_audio, remix_audio, save_input_audio
-from .lib.utils import gc_collect, get_optimal_threads, get_merge_func
+from .lib.helper import gc_collect, get_optimal_threads, get_merge_func
 
 CACHED_SONGS_DIR = os.path.join(BASE_CACHE_DIR,"songs")
 

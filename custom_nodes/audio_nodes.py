@@ -5,9 +5,9 @@ import numpy as np
 import yt_dlp
 import torch
 from .settings import MERGE_OPTIONS
-from .utils import MultipleTypeProxy, increment_filename_no_overwrite
+from .helper import MultipleTypeProxy, increment_filename_no_overwrite
 from ..lib.audio import MAX_INT16, SUPPORTED_AUDIO, AudioProcessor, audio_to_bytes, get_audio, load_input_audio, pad_audio, remix_audio, save_input_audio
-from ..lib.utils import get_filenames, get_hash, get_merge_func
+from ..lib.helper import get_filenames, get_hash, get_merge_func
 import folder_paths
 
 CATEGORY = "🌺RVC-Studio/audio"

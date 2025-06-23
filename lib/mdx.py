@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 from .model_utils import get_hash
 
-from .utils import gc_collect
+from .helper import gc_collect
 import onnxruntime as ort
 
 warnings.filterwarnings("ignore")

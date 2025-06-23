@@ -12,7 +12,7 @@ from .pitch_extraction import FeatureExtractor
 
 from .lib.audio import MAX_INT16, load_input_audio, remix_audio
 from .config import config
-from .lib.utils import gc_collect
+from .lib.helper import gc_collect
 
 # torchcrepe = lazyload("torchcrepe")  # Fork Feature. Crepe algo for training and preprocess
 # torch = lazyload("torch")

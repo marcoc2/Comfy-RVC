@@ -85,13 +85,8 @@ class EpochRecorder:
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return f"[{current_time}] | ({elapsed_time_str})"
 
-def train_model(hps: "utils.HParams"):
-    os.environ["CUDA_VISIBLE_DEVICES"] = hps.gpus.replace("-", ",")
-    os.environ["NCCL_P2P_DISABLE"] = "1"
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = str(randint(8189, 8205+hps.train.num_workers**2))
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,garbage_collection_threshold:0.8"
-
+def train_model(hps: "utils.HParams"):    
+    print(hps)
     n_gpus = len(hps.gpus.split("-")) if hps.gpus else torch.cuda.device_count()
 
     if not torch.cuda.is_available() and torch.backends.mps.is_available():
@@ -102,23 +97,35 @@ def train_model(hps: "utils.HParams"):
         n_gpus = 1
     
     gpu_devices = hps.gpus.split("-") if hps.gpus else range(n_gpus)
+    print(f"{gpu_devices=} {n_gpus=}")
 
-    children = {}
-    for i, device in enumerate(gpu_devices):
-        subproc = mp.Process(
-            target=run,
-            args=(
-                i,
-                n_gpus,
-                hps,
-                device
-            ),
-        )
-        children[i]=subproc
-        subproc.start()
+    if n_gpus==1:
+        run(0,1,hps,"0")
+    else:
+        import sys
+        sys.path.insert(0,os.getcwd())
+        mp.set_start_method("spawn")
+        os.environ["CUDA_VISIBLE_DEVICES"] = hps.gpus.replace("-", ",")
+        os.environ["NCCL_P2P_DISABLE"] = "1"
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = str(randint(8189, 8205+hps.train.num_workers**2))
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,garbage_collection_threshold:0.8"
+        children = {}
+        for i, device in enumerate(gpu_devices):
+            subproc = mp.Process(
+                target=run,
+                args=(
+                    i,
+                    n_gpus,
+                    hps,
+                    device
+                ),
+            )
+            children[i]=subproc
+            subproc.start()
 
-    for i in children:
-        children[i].join()
+        for i in children:
+            children[i].join()
 
 def run(rank, n_gpus, hps, device):
     print(f"{__name__=}")
@@ -195,13 +202,13 @@ def run(rank, n_gpus, hps, device):
         collate_fn = TextAudioCollate()
     train_loader = DataLoader(
         train_dataset,
-        num_workers=hps.train.num_workers,
+        # num_workers=hps.train.num_workers,
         shuffle=False,
-        pin_memory=True,
+        # pin_memory=True,
         collate_fn=collate_fn,
         batch_sampler=train_sampler,
-        persistent_workers=True,
-        prefetch_factor=8,
+        # persistent_workers=True,
+        # prefetch_factor=8,
     )
     hps.sync_log_interval(len(train_loader))
     
@@ -386,6 +393,7 @@ def train_and_evaluate(
     net_d.train()
     balancer_g, balancer_d = balancer
     gradient_clip_value = commons.sigmoid_value(global_step, total_steps=10000, start_value=1, end_value=500, midpoint=.2)
+    print(balancer)
 
     # Prepare data iterator
     if hps.if_cache_data_in_gpu:
@@ -470,7 +478,10 @@ def train_and_evaluate(
         data_iterator = enumerate(train_loader)
 
     # Run steps
+    print(data_iterator)
     epoch_recorder = EpochRecorder()
+    print(epoch_recorder)
+
     for batch_idx, info in tqdm(data_iterator,desc=f"[Epoch {epoch}]: "):
         # Data
         ## Unpack
@@ -526,6 +537,7 @@ def train_and_evaluate(
                 hps.data.mel_fmin,
                 hps.data.mel_fmax,
             )
+            y_hat.requires_grad_()
             y_mel = commons.slice_segments(
                 mel, ids_slice, hps.train.segment_size // hps.data.hop_length
             )
@@ -545,22 +557,29 @@ def train_and_evaluate(
             wave = commons.slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size)  # slice
 
             # Discriminator
-            gen_wave = y_hat.detach()
+            gen_wave = y_hat.clone().detach().requires_grad_()
             y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, gen_wave)
             
             with autocast(enabled=False):
-                gradient_penalty = gradient_norm_loss(wave,gen_wave, net_d, eps=hps.train.eps)*hps.train.c_gp if hps.train.get("c_gp",0.)>0 else 0
+                if hps.train.get("c_gp",0.)>0:
+                    gradient_penalty = gradient_norm_loss(wave,gen_wave, net_d, eps=hps.train.eps)*hps.train.c_gp
+                else:
+                    gradient_penalty = torch.tensor(0., device=wave.device)
                 loss_disc, losses_disc = discriminator_loss(y_d_hat_r, y_d_hat_g)
                 loss_disc_all = balancer_d.on_train_batch_start(dict(
                     loss_disc=loss_disc,
                     gradient_penalty=gradient_penalty                    
                     ),input=y_hat)
 
-            optim_d.zero_grad()
-            scaler.scale(loss_disc_all).backward()
-            scaler.unscale_(optim_d)
+            try:
+                optim_d.zero_grad()
+                scaler.scale(loss_disc_all.requires_grad_()).backward()
+                scaler.unscale_(optim_d)                
+                scaler.step(optim_d)
+                # scaler.update()
+            except Exception as e:
+                print(f"error updating discriminator: {e}")
             grad_norm_d = commons.clip_grad_value_(net_d.parameters(), gradient_clip_value, batch_size=hps.train.batch_size)
-            scaler.step(optim_d)
 
         with autocast(enabled=hps.train.fp16_run):
             # Generator
@@ -589,17 +608,18 @@ def train_and_evaluate(
                     loss_fm=loss_fm,
                     loss_mel=loss_mel,
                     loss_kl=loss_kl,
-                    harmonic_loss=harmonic_loss,
-                    tsi_loss=tsi_loss,
-                    tefs_loss=tefs_loss,
+                    aux_loss=aux_loss,
                     ),input=y_hat)
-                
-            optim_g.zero_grad()
-            scaler.scale(loss_gen_all).backward()
-            scaler.unscale_(optim_g)
+                print(f"{loss_gen.requires_grad=} {loss_gen_all.requires_grad=}")
+            try:
+                optim_g.zero_grad()
+                scaler.scale(loss_gen_all.requires_grad_()).backward()
+                scaler.unscale_(optim_g)
+                scaler.step(optim_g)
+                scaler.update()
+            except Exception as e:
+                print(f"error updating generator: {e}")
             grad_norm_g = commons.clip_grad_value_(net_g.parameters(), gradient_clip_value, batch_size=hps.train.batch_size)
-            scaler.step(optim_g)
-            scaler.update()
         
         if rank == 0:
             if hps.train.log_interval>0 and global_step % hps.train.log_interval == 0: #tensorboard logging
@@ -693,9 +713,9 @@ def train_and_evaluate(
     if rank == 0:
         total_loss = balancer_g.weighted_ema_loss + balancer_d.weighted_ema_loss
         logger.info(f"====> Epoch {epoch} ({total_loss=:.3f}): {global_step=} {lr=:.2E} {epoch_recorder.record()}")
-        logger.info(f"|| {loss_disc_all=:.3f}: {loss_disc=:.3f}, {gradient_penalty=:.3f}")
-        logger.info(f"|| {loss_gen_all=:.3f}: {loss_gen=:.3f}, {loss_fm=:.3f}, {loss_mel=:.3f}, {loss_kl=:.3f}")
-        logger.info(f"|| {aux_loss=:.3f}: {harmonic_loss=:.3f}, {tefs_loss=:.3f}, {tsi_loss=:.3f}")
+        logger.info(f"|| {loss_disc_all.item()=:.3f}: {loss_disc.item()=:.3f}, {gradient_penalty.item()=:.3f}")
+        logger.info(f"|| {loss_gen_all.item()=:.3f}: {loss_gen.item()=:.3f}, {loss_fm.item()=:.3f}, {loss_mel.item()=:.3f}, {loss_kl.item()=:.3f}")
+        logger.info(f"|| {aux_loss.item()=:.3f}: {harmonic_loss.item()=:.3f}, {tefs_loss.item()=:.3f}, {tsi_loss.item()=:.3f}")
 
         #sigmoid scaling of ema
         weights_decay = commons.sigmoid_value(global_step,total_steps=10000,start_value=.5, end_value=.999, midpoint=.2)
@@ -704,13 +724,13 @@ def train_and_evaluate(
 
         if loss_gen_all<least_loss:
             least_loss = loss_gen_all
-            logger.info(f"\t>>>[lowest loss]: {least_loss:.3f}<<<")
+            logger.info(f"\t>>>[lowest loss]: {least_loss.item():.3f}<<<")
 
             if hps.save_best_model:
                 if hasattr(net_g, "module"): ckpt = net_g.module.state_dict()
                 else: ckpt = net_g.state_dict()
                 
-                best_model_name = f"{hps.name}_e{epoch}_s{global_step}_loss{least_loss:.0f}" if hps.save_every_weights else f"{hps.name}_loss{least_loss:2.0f}"
+                best_model_name = f"{hps.name}_e{epoch}_s{global_step}_loss{least_loss.item():.0f}" if hps.save_every_weights else f"{hps.name}_loss{least_loss.item():2.0f}"
                 status = save_checkpoint(ckpt,best_model_name,epoch,hps)
                 logger.info(f"=== saving best model {best_model_name}: {status=} ===")
             
@@ -755,6 +775,5 @@ def train_and_evaluate(
         os._exit(0)
 
 if __name__ == "__main__":
-    torch.multiprocessing.set_start_method("spawn")
     hps = utils.get_hparams()
     train_model(hps)

@@ -2,7 +2,7 @@ import base64
 import io
 import os
 import zlib
-from .utils import get_hash, get_merge_func
+from .helper import get_hash, get_merge_func
 import numpy as np
 import librosa
 import soundfile as sf

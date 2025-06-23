@@ -2,9 +2,9 @@ import itertools
 import math
 import os
 import torch
-from .utils import AlwaysEqualProxy, MultipleTypeProxy
+from .helper import AlwaysEqualProxy, MultipleTypeProxy
 import folder_paths
-from ..lib.utils import gc_collect
+from ..lib.helper import gc_collect
 import numpy as np
 
 CATEGORY = "🌺RVC-Studio/utils"

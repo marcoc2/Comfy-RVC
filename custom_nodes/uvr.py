@@ -1,10 +1,10 @@
 import os
 import audio_separator.separator as uvr
 
-from .utils import MultipleTypeProxy
+from .helper import MultipleTypeProxy
 from ..lib.audio import audio_to_bytes, save_input_audio, load_input_audio, get_audio
 import folder_paths
-from ..lib.utils import get_filenames, get_hash, get_optimal_torch_device
+from ..lib.helper import get_filenames, get_hash, get_optimal_torch_device
 from ..lib import BASE_CACHE_DIR, BASE_MODELS_DIR, karafan
 from .settings.downloader import KARAFAN_MODELS, MDX_MODELS, RVC_DOWNLOAD_LINK, VR_MODELS, download_file
 

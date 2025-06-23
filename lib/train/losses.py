@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from .mel_processing import mel_spectrogram_torch, spectral_de_normalize_torch
 
-from ..utils import gc_collect
+from ..helper import gc_collect
 from ..infer_pack.commons import compute_correlation, median_pool1d, minmax_scale
 
 class LossBalancer:
@@ -71,13 +71,13 @@ class LossBalancer:
         """Calculates the slope of the loss using the current loss and its EMA."""
         ema_loss = self.historical_losses.get(key, current_loss)+self.epsilon
         slope = (current_loss-ema_loss)/ema_loss  # relative loss change
-        return slope.abs()
+        return slope.abs().requires_grad_()
     
     def calculate_gradients(self, key: str, current_loss: torch.Tensor, input: torch.Tensor):
         """Calculates the gradient norm of the current loss wrt the model params."""
         self.model.zero_grad()  # Clear previous gradients
-        input.requires_grad_(True)
-        current_loss.requires_grad_(True)
+        input.requires_grad_()
+        current_loss.requires_grad_()
 
         # Backward pass to output layer
         output_params = torch.autograd.grad(current_loss, [input], retain_graph=True, allow_unused=True, materialize_grads=True)[0].nan_to_num(self.epsilon)
@@ -89,7 +89,7 @@ class LossBalancer:
         if grad_norm<=self.epsilon: #use slope as fallback
             grad_norm = self.calculate_loss_slope(key, current_loss)
 
-        return grad_norm
+        return grad_norm.requires_grad_()
 
     def pareto_normalizer(self, loss_dict: dict, weight=.8):
         """
@@ -196,7 +196,7 @@ class LossBalancer:
                 gradients[key] = max(loss_slope.item(), self.epsilon)
             valid_losses[key] = loss.nan_to_num(self.epsilon)
 
-        if not valid_losses or not gradients: return torch.tensor(0.0)  # If all losses are skipped
+        if not valid_losses or not gradients: return torch.tensor(0.,device=input.device).requires_grad_()  # If all losses are skipped
 
         # update historical losses
         self.update_historical_losses({k: loss.item() for k, loss in valid_losses.items()})
@@ -209,11 +209,12 @@ class LossBalancer:
         normalized_weights = self.update_ema_weights(normalized_weights)
         
         # Balance losses
-        balanced_loss = 0
+        balanced_loss = torch.tensor(0.,device=input.device).requires_grad_()
         for k, loss in valid_losses.items():
-            balanced_loss += normalized_weights.get(k, 1.) * loss
+            balanced_loss += normalized_weights.get(k, 1.) * loss.requires_grad_()
+            print(balanced_loss.requires_grad,loss.requires_grad)
         
-        return balanced_loss
+        return balanced_loss.requires_grad_()
 
     def on_epoch_end(self, weights_decay=None, loss_decay=None):
         """
@@ -380,23 +381,23 @@ def combined_aux_loss(
         # Define loss terms
         harmonic_loss = F.l1_loss(generated_harmonics, original_harmonics)
         harmonic_loss += F.l1_loss(generated_percussives, original_percussives)
-    else: harmonic_loss = 0
+    else: harmonic_loss = torch.tensor(0.,device=original_audio.device).requires_grad_()
 
     # temporal invariant phase
     if c_tsi>0:
         freq_tsi = compute_tsi_loss(org_mag,gen_mag,dim=-1, eps=eps)
         temp_tsi = compute_tsi_loss(org_mag,gen_mag,dim=-2, eps=eps)
         tsi_loss = (freq_tsi+temp_tsi)
-    else: tsi_loss = 0
+    else: tsi_loss = torch.tensor(0.,device=original_audio.device).requires_grad_()
 
     # Temperol Envelope and Fine Structure Loss
     if c_tefs>0:
         gen_te, gen_tfs = compute_tefs(generated_audio, eps=eps)
         org_te, org_tfs = compute_tefs(original_audio, eps=eps)
         tefs_loss = F.l1_loss(gen_te, org_te) + F.l1_loss(gen_tfs, org_tfs)
-    else: tefs_loss = 0
+    else: tefs_loss = torch.tensor(0.,device=original_audio.device).requires_grad_()
     
-    return harmonic_loss, tefs_loss, tsi_loss
+    return harmonic_loss.requires_grad_(), tefs_loss.requires_grad_(), tsi_loss.requires_grad_()
 
 def gradient_norm_loss(original_audio: torch.Tensor, generated_audio: torch.Tensor, net_d: torch.nn.Module, eps=1e-8):
     # Compute the gradient penalty
@@ -423,7 +424,7 @@ def gradient_norm_loss(original_audio: torch.Tensor, generated_audio: torch.Tens
     if gradients.ndim<=1: gradients = gradients.unsqueeze(0)
     grad_norm = gradients.view(gradients.size(0), -1).square().sum(-1).sqrt()
     loss = ((grad_norm - 1) ** 2).mean()
-    return loss
+    return loss.requires_grad_()
 
 # Adapted from https://github.com/NVIDIA/BigVGAN/blob/main/loss.py
 # LICENSE: https://github.com/NVIDIA/BigVGAN/blob/main/LICENSE

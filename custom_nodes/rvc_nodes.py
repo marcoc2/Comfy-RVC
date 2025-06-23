@@ -19,7 +19,7 @@ from ..config import config
 
 from ..lib.model_utils import load_hubert
 
-from .utils import MultipleTypeProxy, increment_filename_no_overwrite, model_downloader
+from .helper import MultipleTypeProxy, increment_filename_no_overwrite, model_downloader
 from .settings import PITCH_EXTRACTION_OPTIONS
 from .settings.downloader import PRETRAINED_MODELS_D, PRETRAINED_MODELS_G, RVC_DOWNLOAD_LINK, RVC_INDEX, RVC_MODELS, download_file, extract_zip_without_structure
 
@@ -27,7 +27,7 @@ from ..lib.audio import SUPPORTED_AUDIO, audio_to_bytes, load_input_audio, save_
 
 from ..vc_infer_pipeline import get_vc, vc_single
 import folder_paths
-from ..lib.utils import get_filenames, get_hash, get_optimal_threads, get_optimal_torch_device
+from ..lib.helper import get_filenames, get_hash, get_optimal_threads, get_optimal_torch_device
 from ..lib import BASE_CACHE_DIR, BASE_MODELS_DIR
 
 input_path = folder_paths.get_input_directory()

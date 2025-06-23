@@ -17,7 +17,7 @@ import numpy as np, onnxruntime as ort
 import yaml
 from .. import BASE_CACHE_DIR, BASE_DIR, BASE_MODELS_DIR, ObjectNamespace as ConfigDict
 from ..audio import remix_audio
-from ..utils import gc_collect
+from ..helper import gc_collect
 
 # Maybe not available on PC
 try:

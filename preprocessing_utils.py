@@ -6,7 +6,7 @@ import traceback
 from scipy.io import wavfile
 from .pitch_extraction import FeatureExtractor
 from .lib.audio import hz_to_mel, load_input_audio, remix_audio, AudioProcessor
-from .lib.utils import gc_collect
+from .lib.helper import gc_collect
 from .config import config
 import torch
 

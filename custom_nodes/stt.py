@@ -10,8 +10,8 @@ import torch
 from .settings import SUPPORTED_LANGUAGES
 
 from ..lib import BASE_CACHE_DIR, BASE_MODELS_DIR
-from .utils import increment_filename_no_overwrite
-from ..lib.utils import get_hash, get_optimal_torch_device
+from .helper import increment_filename_no_overwrite
+from ..lib.helper import get_hash, get_optimal_torch_device
 import folder_paths
 from ..lib.audio import bytes_to_audio, remix_audio
 import spacy

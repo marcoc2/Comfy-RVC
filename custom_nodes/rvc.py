@@ -60,11 +60,17 @@ class RVCNode:
         widgetId = get_hash(audio(), model, f0_up_key, *pitch_extraction_params.items())
         cache_name = os.path.join(BASE_CACHE_DIR,"rvc",f"{widgetId}.{format}")
 
-        if use_cache and os.path.isfile(cache_name): output_audio = load_input_audio(cache_name)
+        if use_cache and os.path.isfile(cache_name) and os.path.getsize(cache_name) > 0:
+            output_audio = load_input_audio(cache_name)
         else:
+            if use_cache and os.path.isfile(cache_name):
+                os.remove(cache_name)  # remove empty/corrupt cache
             input_audio = bytes_to_audio(audio())
             output_audio = vc_single(hubert_model=hubert_model(),input_audio=input_audio,f0_up_key=f0_up_key,**model(),**pitch_extraction_params)
-            
+
+            if output_audio is None:
+                raise RuntimeError("RVC inference failed: vc_single returned None. Check that the model, hubert and audio are valid.")
+
             if use_cache:
                 print(save_input_audio(cache_name, output_audio))
                 if os.path.isfile(cache_name): output_audio = load_input_audio(cache_name)
